@@ -1,123 +1,151 @@
 /**
- * @file board_lilygo_t_embed_cc1101.h
- * Board definition: LilyGo T-Embed CC1101 (Đã sửa lỗi xung đột chân IO15 cho màn 1.14" ST7789)
- * * MCU:      ESP32-S3 (dual-core Xtensa LX7 - N16R8)
- * Display:  ST7789 240x135 RGB565 via SPI (Custom Pins)
+ * @file furi_hal_gpio.c
+ * GPIO HAL for ESP32
  */
 
-#pragma once
+#include "furi_hal_gpio.h"
 
-/* ---- Board metadata ---- */
-#define BOARD_NAME        "ESP32-S3 Custom 1.14 LCD"
-#define BOARD_TARGET      "esp32s3"
+#include <driver/gpio.h>
+#include <esp_err.h>
 
-/* ---- Hardware Button / Encoder Pins ---- */
-#define BOARD_PIN_BUTTON_BOOT   UINT16_MAX
-#define BOARD_PIN_BUTTON_KEY    UINT16_MAX
-#define BOARD_PIN_BATTERY_ADC   UINT16_MAX
+static GpioInterrupt furi_hal_gpio_interrupts[GPIO_NUM_MAX] = {0};
+static bool furi_hal_gpio_isr_service_ready = false;
 
-/* ---- LCD Pins (Cấu hình chân chuẩn xác ba đã hàn theo Bruce) ---- */
-#define BOARD_PIN_LCD_SCLK      18  /* SCL */
-#define BOARD_PIN_LCD_MOSI      17  /* SDA */
-#define BOARD_PIN_LCD_DC        9  /* DC (Dùng chung chân IO15) */
-#define BOARD_PIN_LCD_CS        7   /* CS */
-#define BOARD_PIN_LCD_RST       16  /* RES */
-#define BOARD_PIN_LCD_BL        6   /* BLK */
+static bool furi_hal_gpio_is_valid(const GpioPin* gpio) {
+    return gpio && gpio->pin != UINT16_MAX && gpio->pin < GPIO_NUM_MAX;
+}
 
-/* ---- LCD Display Configuration (Tối ưu hóa Offset/Gap cho màn 1.14 inch) ---- */
-#define BOARD_LCD_H_RES         240      
-#define BOARD_LCD_V_RES         135      
-#define BOARD_LCD_SPI_HOST      SPI2_HOST
-#define BOARD_LCD_SPI_FREQ_HZ   (20 * 1000 * 1000) /* Tần số 20MHz cực kỳ ổn định */
-#define BOARD_LCD_CMD_BITS      8
-#define BOARD_LCD_PARAM_BITS    8
-#define BOARD_LCD_SWAP_XY       false
-#define BOARD_LCD_MIRROR_X      false
-#define BOARD_LCD_MIRROR_Y      false    
-#define BOARD_LCD_INVERT_COLOR  false     
-#define BOARD_LCD_GAP_X         0       /* Khớp tọa độ căn giữa màn hình 1.14" */
-#define BOARD_LCD_GAP_Y         0       /* Khớp tọa độ tránh lệch sọc màn hình 1.14" */
-#define BOARD_LCD_BL_ACTIVE_LOW false     /* Đặt TRUE để ép chân IO6 xuất điện bật đèn nền màn rời */
-#define BOARD_LCD_COLOR_ORDER_BGR true 
+static void furi_hal_gpio_isr_handler(void* arg) {
+    const uint32_t pin = (uint32_t)(uintptr_t)arg;
+    if(pin >= GPIO_NUM_MAX) return;
 
-/* Màu sắc hiển thị cơ bản */
-#define BOARD_LCD_FG_COLOR      0xFFFF  /* Trắng */
-#define BOARD_LCD_BG_COLOR      0x0000  /* Đen */
+    GpioInterrupt interrupt = furi_hal_gpio_interrupts[pin];
+    if(interrupt.callback) interrupt.callback(interrupt.context);
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG ENCODER / INPUT ---- */
-#define BOARD_PIN_ENCODER_A      UINT16_MAX
-#define BOARD_PIN_ENCODER_B      UINT16_MAX
-#define BOARD_PIN_ENCODER_BTN    UINT16_MAX
+static void furi_hal_gpio_ensure_isr_service(void) {
+    if(furi_hal_gpio_isr_service_ready) return;
 
-/* ---- GIẢ LẬP HỆ THỐNG CHÂN SUB-GHZ ---- */
-#define BOARD_PIN_CC1101_CSN     UINT16_MAX
-#define BOARD_PIN_CC1101_SCK     UINT16_MAX
-#define BOARD_PIN_CC1101_MISO    UINT16_MAX
-#define BOARD_PIN_CC1101_MOSI    UINT16_MAX
-#define BOARD_PIN_CC1101_GDO0    UINT16_MAX
-#define BOARD_PIN_CC1101_GDO2    UINT16_MAX
+    esp_err_t err = gpio_install_isr_service(0);
+    if(err == ESP_OK || err == ESP_ERR_INVALID_STATE) {
+        furi_hal_gpio_isr_service_ready = true;
+    }
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG ĐÈN LED RGB & BACKLIGHT ---- */
-#define BOARD_PIN_WS2812_DATA    UINT16_MAX
-#define BOARD_WS2812_LED_COUNT   0
-#define BOARD_PIN_BACKLIGHT      UINT16_MAX
+static gpio_mode_t furi_hal_gpio_convert_mode(GpioMode mode) {
+    switch(mode) {
+    case GpioModeInput:
+    case GpioModeInterruptRise:
+    case GpioModeInterruptFall:
+    case GpioModeInterruptRiseFall:
+    case GpioModeEventRise:
+    case GpioModeEventFall:
+    case GpioModeEventRiseFall:
+        return GPIO_MODE_INPUT;
+    case GpioModeOutputPushPull:
+        return GPIO_MODE_OUTPUT;
+    case GpioModeOutputOpenDrain:
+        return GPIO_MODE_OUTPUT_OD;
+    case GpioModeAltFunctionPushPull:
+        return GPIO_MODE_INPUT_OUTPUT;
+    case GpioModeAltFunctionOpenDrain:
+        return GPIO_MODE_INPUT_OUTPUT_OD;
+    case GpioModeAnalog:
+    default:
+        return GPIO_MODE_DISABLE;
+    }
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG CẢM ỨNG I2C TOUCH ---- */
-#define BOARD_TOUCH_I2C_PORT     I2C_NUM_0
-#define BOARD_TOUCH_I2C_ADDR     0x00
-#define BOARD_TOUCH_I2C_FREQ_HZ  400000
-#define BOARD_TOUCH_I2C_TIMEOUT  20
-#define BOARD_PIN_TOUCH_SCL      UINT16_MAX
-#define BOARD_PIN_TOUCH_SDA      UINT16_MAX
-#define BOARD_PIN_TOUCH_RST      UINT16_MAX
-#define BOARD_PIN_TOUCH_INT      UINT16_MAX
+static gpio_int_type_t furi_hal_gpio_convert_interrupt(GpioMode mode) {
+    switch(mode) {
+    case GpioModeInterruptRise:
+    case GpioModeEventRise:
+        return GPIO_INTR_POSEDGE;
+    case GpioModeInterruptFall:
+    case GpioModeEventFall:
+        return GPIO_INTR_NEGEDGE;
+    case GpioModeInterruptRiseFall:
+    case GpioModeEventRiseFall:
+        return GPIO_INTR_ANYEDGE;
+    default:
+        return GPIO_INTR_DISABLE;
+    }
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG LOA/BUZZER ---- */
-#define BOARD_PIN_SPEAKER_BCLK  UINT16_MAX
-#define BOARD_PIN_SPEAKER_WCLK  UINT16_MAX
-#define BOARD_PIN_SPEAKER_DOUT  UINT16_MAX
-#define BOARD_PIN_SPEAKER        UINT16_MAX
+void furi_hal_gpio_init_simple(const GpioPin* gpio, const GpioMode mode) {
+    furi_hal_gpio_init(gpio, mode, GpioPullNo, GpioSpeedLow);
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG HỒNG NGOẠI IR ---- */
-#define BOARD_PIN_IR_TX         UINT16_MAX
-#define BOARD_PIN_IR_RX         UINT16_MAX
+void furi_hal_gpio_init(
+    const GpioPin* gpio,
+    const GpioMode mode,
+    const GpioPull pull,
+    const GpioSpeed speed) {
+    furi_hal_gpio_init_ex(gpio, mode, pull, speed, GpioAltFnUnused);
+}
 
-/* ---- GIẢ LẬP HỆ THỐNG THẺ NHỚ SD ---- */
-#define BOARD_PIN_SD_CS         UINT16_MAX
-#define BOARD_PIN_SD_MISO        UINT16_MAX
-#define BOARD_PIN_SD_MOSI        UINT16_MAX
-#define BOARD_PIN_SD_SCK         UINT16_MAX
+void furi_hal_gpio_init_ex(
+    const GpioPin* gpio,
+    const GpioMode mode,
+    const GpioPull pull,
+    const GpioSpeed speed,
+    const GpioAltFn alt_fn) {
+    (void)speed;
+    (void)alt_fn;
 
-/* ---- VÔ HIỆU HÓA CÁC CHÂN NGOẠI VI KHÁC ---- */
-#define BOARD_PIN_NRF24_CE      UINT16_MAX
-#define BOARD_PIN_NRF24_CSN     UINT16_MAX
+    if(!furi_hal_gpio_is_valid(gpio)) return;
 
-/* ⚠️ CHỖ NÀY GIẢI CỨU CHÂN IO15: Khóa chân nguồn tổng về UINT16_MAX để buông tha chân IO15 cho màn hình chạy dữ liệu */
-#define BOARD_PIN_PWR_EN        UINT16_MAX 
+    gpio_config_t config = {
+        .pin_bit_mask = 1ULL << gpio->pin,
+        .mode = furi_hal_gpio_convert_mode(mode),
+        .pull_up_en = pull == GpioPullUp,
+        .pull_down_en = pull == GpioPullDown,
+        .intr_type = furi_hal_gpio_convert_interrupt(mode),
+    };
+    gpio_config(&config);
+}
 
-#define BOARD_PIN_NFC_SCL       UINT16_MAX
-#define BOARD_PIN_NFC_SDA       UINT16_MAX
-#define BOARD_PIN_MIC_DATA      UINT16_MAX
-#define BOARD_PIN_MIC_CLK       UINT16_MAX
+void furi_hal_gpio_add_int_callback(const GpioPin* gpio, GpioExtiCallback cb, void* ctx) {
+    if(!furi_hal_gpio_is_valid(gpio)) return;
 
-/* ---- FEATURES FLAGS (Tắt hết tính năng thừa, chỉ tập trung nuôi màn hình) ---- */
-#define BOARD_HAS_TOUCH         0
-#define BOARD_HAS_ENCODER       0
-#define BOARD_HAS_SD_CARD       0
-#define BOARD_HAS_BLE           0
-#define BOARD_HAS_RGB_LED       0
-#define BOARD_HAS_VIBRO         0
-#define BOARD_HAS_SPEAKER       0
-#define BOARD_HAS_IR            0
-#define BOARD_HAS_IBUTTON       0
-#define BOARD_HAS_RFID          0
-#define BOARD_HAS_NFC           0
-#define BOARD_HAS_SUBGHZ        0
-#define BOARD_HAS_MIC           0
+    furi_hal_gpio_ensure_isr_service();
+    if(!furi_hal_gpio_isr_service_ready) return;
 
-/* ---- CẤU HÌNH QUẢN LÝ NGUỒN PIN GIẢ LẬP ---- */
-#define BQ27220_ADDR            0x55
-#define BQ_I2C_PORT             I2C_NUM_0
-#define HIGH_DRAIN_CURRENT_THRESHOLD (-200)
-#define FURI_HAL_POWER_VIRTUAL_CAPACITY_MAH     (1300U)
-#define BQ25896_CHARGE_LIMIT    1280
+    furi_hal_gpio_interrupts[gpio->pin].callback = cb;
+    furi_hal_gpio_interrupts[gpio->pin].context = ctx;
+    gpio_isr_handler_remove((gpio_num_t)gpio->pin);
+    gpio_isr_handler_add(
+        (gpio_num_t)gpio->pin, furi_hal_gpio_isr_handler, (void*)(uintptr_t)gpio->pin);
+    gpio_intr_enable((gpio_num_t)gpio->pin);
+}
+
+void furi_hal_gpio_enable_int_callback(const GpioPin* gpio) {
+    if(!furi_hal_gpio_is_valid(gpio)) return;
+    gpio_intr_enable((gpio_num_t)gpio->pin);
+}
+
+void furi_hal_gpio_disable_int_callback(const GpioPin* gpio) {
+    if(!furi_hal_gpio_is_valid(gpio)) return;
+    gpio_intr_disable((gpio_num_t)gpio->pin);
+}
+
+void furi_hal_gpio_remove_int_callback(const GpioPin* gpio) {
+    if(!furi_hal_gpio_is_valid(gpio)) return;
+
+    gpio_intr_disable((gpio_num_t)gpio->pin);
+    if(furi_hal_gpio_isr_service_ready) {
+        gpio_isr_handler_remove((gpio_num_t)gpio->pin);
+    }
+    furi_hal_gpio_interrupts[gpio->pin].callback = NULL;
+    furi_hal_gpio_interrupts[gpio->pin].context = NULL;
+}
+
+void furi_hal_gpio_write(const GpioPin* gpio, const bool state) {
+    if(!furi_hal_gpio_is_valid(gpio)) return;
+    gpio_set_level((gpio_num_t)gpio->pin, state ? 1 : 0);
+}
+
+bool furi_hal_gpio_read(const GpioPin* gpio) {
+    if(!furi_hal_gpio_is_valid(gpio)) return false;
+    return gpio_get_level((gpio_num_t)gpio->pin) != 0;
+}
